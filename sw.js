@@ -1,8 +1,8 @@
 const CACHE_NAME = 'chat-app-cache-v1';
 const urlsToCache = [
   './index.html',
-  './manifest.json'
-  // Add additional assets (CSS, JS, images) as needed.
+  './manifest.json',
+  // Add your CSS, JS, and image files as needed.
 ];
 
 self.addEventListener('install', event => {
