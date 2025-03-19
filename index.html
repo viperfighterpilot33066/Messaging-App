@@ -438,10 +438,9 @@
     let deferredPrompt;
 
     window.addEventListener('beforeinstallprompt', (e) => {
-      // Prevent the mini-infobar from appearing on mobile
       e.preventDefault();
       deferredPrompt = e;
-      // Show the install button in settings
+      // Show the install button in settings when prompt is available
       document.getElementById('install-button').style.display = 'block';
       console.log('beforeinstallprompt event captured');
     });
@@ -453,7 +452,6 @@
         const { outcome } = await deferredPrompt.userChoice;
         console.log(`User response to the install prompt: ${outcome}`);
         if (outcome === 'accepted') {
-          // Hide the install button after installation accepted
           document.getElementById('install-button').style.display = 'none';
         }
         deferredPrompt = null;
@@ -629,14 +627,12 @@
       const text = messageInput.value;
       if (text.trim() === '') return;
       
-      // Add optimistic message to UI
       const optimisticMsg = document.createElement('div');
       optimisticMsg.className = 'message optimistic';
       optimisticMsg.innerHTML = `<strong>${auth.currentUser.displayName || auth.currentUser.email}:</strong> ${text} <em>Sending...</em>`;
       messagesDiv.appendChild(optimisticMsg);
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
-      // Add message to Firestore with readBy field
       db.collection('messages').add({
         text: text,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
