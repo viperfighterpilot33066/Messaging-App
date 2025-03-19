@@ -3,6 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <title>Chat App</title>
+  <!-- Mobile-friendly meta tag -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- PWA manifest and theme color -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#4a76a8">
   <style>
     /* Base styles */
     body {
@@ -263,7 +268,7 @@
       bottom: 0;
       background: rgba(0,0,0,0.5);
       z-index: 3000;
-      display: flex;
+      display: none;
       align-items: center;
       justify-content: center;
     }
@@ -287,6 +292,28 @@
     .settings-modal-content button {
       padding: 8px 12px;
       margin-right: 8px;
+    }
+    /* Mobile Responsive Styles */
+    @media (max-width: 600px) {
+      .container {
+        padding: 10px;
+      }
+      #chat-container {
+        height: 80vh;
+      }
+      #chat-header h2 {
+        font-size: 1.2em;
+      }
+      #message-input {
+        padding: 6px;
+      }
+      #send-button {
+        padding: 6px 10px;
+      }
+      #chat-header button {
+        padding: 5px 8px;
+        font-size: 0.9em;
+      }
     }
   </style>
   <!-- Firebase SDKs -->
@@ -377,6 +404,10 @@
       <div class="settings-option">
         <button id="remove-theme-button">Remove Custom Theme</button>
       </div>
+      <div class="settings-option">
+        <!-- Install button is initially hidden -->
+        <button id="install-button" style="display: none;">Install App</button>
+      </div>
       <div>
         <button id="save-settings-button">Save</button>
         <button id="close-settings-button">Close</button>
@@ -385,10 +416,49 @@
   </div>
 
   <script>
-    // Request Notification permission on load if not granted
-    if (window.Notification && Notification.permission !== 'granted') {
-      Notification.requestPermission();
+    // Register Service Worker for PWA functionality
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('sw.js').then(function(registration) {
+          console.log('Service Worker registered with scope: ', registration.scope);
+        }, function(err) {
+          console.error('Service Worker registration failed: ', err);
+        });
+      });
     }
+
+    // Request notification permission if not already granted
+    if (window.Notification && Notification.permission !== 'granted') {
+      Notification.requestPermission().then(permission => {
+        console.log("Notification permission: " + permission);
+      });
+    }
+
+    // Variable to store the beforeinstallprompt event
+    let deferredPrompt;
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      // Prevent the mini-infobar from appearing on mobile
+      e.preventDefault();
+      deferredPrompt = e;
+      // Show the install button in settings
+      document.getElementById('install-button').style.display = 'block';
+      console.log('beforeinstallprompt event captured');
+    });
+
+    // Handle install button click
+    document.getElementById('install-button').addEventListener('click', async () => {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log(`User response to the install prompt: ${outcome}`);
+        if (outcome === 'accepted') {
+          // Hide the install button after installation accepted
+          document.getElementById('install-button').style.display = 'none';
+        }
+        deferredPrompt = null;
+      }
+    });
 
     // Firebase configuration
     const firebaseConfig = {
@@ -469,7 +539,6 @@
     // Save settings
     function saveSettings() {
       localStorage.setItem('notificationsEnabled', notificationsCheckbox.checked);
-      // If a custom theme file was uploaded, it will already be injected; its content should be saved.
       localStorage.setItem('customTheme', customThemeStyle.innerHTML);
       closeSettingsModal();
     }
@@ -593,10 +662,7 @@
           messagesDiv.innerHTML = '';
           snapshot.forEach(doc => {
             const message = doc.data();
-            // Skip messages marked for pending deletion
             if (message.pendingDelete) return;
-            
-            // Auto-update read receipts for messages not from current user
             if (message.uid !== auth.currentUser.uid) {
               if (!message.readBy || !message.readBy.includes(auth.currentUser.uid)) {
                 message.readBy = message.readBy || [];
@@ -630,7 +696,6 @@
               messageElement.appendChild(editedLabel);
             }
             
-            // Display read receipts for messages from current user
             if (message.uid === auth.currentUser.uid && message.readBy && message.readBy.length > 1) {
               const readLabel = document.createElement('div');
               readLabel.style.fontSize = '0.8em';
@@ -639,7 +704,6 @@
               messageElement.appendChild(readLabel);
             }
             
-            // Display reactions if available
             if (message.reactions && Object.keys(message.reactions).length > 0) {
               const reactionCounts = {};
               Object.keys(message.reactions).forEach(uid => {
@@ -673,7 +737,6 @@
               messageElement.appendChild(reactionsDiv);
             }
             
-            // Context menu for Edit, Delete, and React
             messageElement.addEventListener('contextmenu', function(e) {
               e.preventDefault();
               removeContextMenu();
@@ -683,13 +746,13 @@
           });
           messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
-          // Browser notifications for new messages (only if page is hidden and notifications are enabled)
+          // Trigger desktop notifications for new messages if enabled
           const docs = snapshot.docs;
           if (docs.length > 0) {
             const lastDoc = docs[docs.length - 1];
             const data = lastDoc.data();
             if (data.createdAt && (!lastMessageTimestamp || data.createdAt.toMillis() > lastMessageTimestamp) && data.uid !== auth.currentUser.uid) {
-              if (document.visibilityState === 'hidden' && notificationsCheckbox.checked && Notification.permission === 'granted') {
+              if (notificationsCheckbox.checked && Notification.permission === 'granted') {
                 let notificationText = "";
                 if (data.type === 'text') {
                   notificationText = data.text;
@@ -819,11 +882,9 @@
     function deleteMessage(messageId) {
       db.collection('messages').doc(messageId).get().then(doc => {
         let messageData = doc.data();
-        // Mark message as pending deletion instead of immediately deleting it
         return doc.ref.update({ pendingDelete: true }).then(() => {
           lastDeletedMessage = { id: messageId, data: messageData };
           showUndoNotification();
-          // Permanently delete after 5 seconds if not undone
           undoTimeout = setTimeout(() => {
             db.collection('messages').doc(messageId).delete().then(() => {
               console.log("Message permanently deleted!");
@@ -871,12 +932,10 @@
         extrasPanel.style.display = 'none';
       }
     });
-    // File button – opens file selector
     fileBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       fileInput.click();
     });
-    // Handle file upload to Firebase Storage
     fileInput.addEventListener('change', function(e) {
       const file = e.target.files[0];
       if (file) {
@@ -907,12 +966,10 @@
       const fileRef = storageRef.child('files/' + file.name + '_' + Date.now());
       return fileRef.put(file).then(() => fileRef.getDownloadURL());
     }
-    // Emoji button – toggle emoji panel
     emojiBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       emojiPanel.style.display = emojiPanel.style.display === 'none' || emojiPanel.style.display === '' ? 'flex' : 'none';
     });
-    // Send emoji from emoji panel
     document.querySelectorAll('.emoji-choice').forEach(btn => {
       btn.addEventListener('click', function(e) {
         e.stopPropagation();
